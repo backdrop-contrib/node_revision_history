@@ -1,0 +1,5 @@
+name = Node Revision History
+description = "List and prune node revisions."
+backdrop = 1.x
+package = Content
+type = module

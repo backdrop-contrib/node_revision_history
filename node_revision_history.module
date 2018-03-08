@@ -1,0 +1,382 @@
+<?php
+/**
+ * @file
+ * This module allows administrators to review the number of node
+ * revisions current in the site and make use of Backdrop's
+ * function node_revision_delete for selective deletion of them.
+ */
+
+
+/**
+* Implements hook_menu().
+*/
+function node_revision_history_menu() {
+  $items['admin/content/node_revision_history'] = array(
+    'title' => 'Node Revision History',
+    'description' => 'Listing of node revisions.',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('node_revision_history_listing_form'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer node_revision_history'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function node_revision_history_permission() {
+  return array(
+    'administer node_revision_history' => array(
+      'title' => t('Administer Node History'),
+      'description' => t('Allow access to use the module.'),
+    ),
+  );
+}
+
+/**
+ * The Node Revision History initial form.
+ */
+function node_revision_history_listing_form($form, &$form_state) {
+
+  // Display page 2 if $form_state['page_num'] == 2
+  if (!empty($form_state['page_num']) && $form_state['page_num'] == 2) {
+    return node_revision_history_listing_form_page_two($form, $form_state);
+  }
+
+  // Display page 3 if $form_state['page_num'] == 3
+  if (!empty($form_state['page_num']) && $form_state['page_num'] == 3) {
+    return node_revision_history_listing_form_page_three($form, $form_state);
+  }
+
+  // Otherwise we build page 1.
+  $form_state['page_num'] = 1;
+
+  $form['help'] = array(
+    '#type' => 'help',
+    '#suffix' => t('Important: make sure you have backed up your database before using this utilty.'),
+    '#markup' => t('This utility provides a quick way for admin to review the number of revisions 
+      stored in the system for individual nodes and to delete some or all of them.'),
+  );
+  $form['description'] = array(
+    '#type' => 'item',
+    '#title' => t('Specify either a single node identity number to process one node or use zero to get a full listing'),
+    '#description' => t('Submitting zero will produce a table listing current node types and number of revisions.'),
+  );
+
+  $form['nid'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Node identity - NID'),
+    '#default_value' => 0,
+    '#size' => 10,
+    '#maxlength' => 10,
+  );
+
+  $form['threshold'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Revision threshold'),
+    '#description' => t('When generating the table of results only include nodes 
+      which have more revisions than this threshold.'),
+    '#default_value' => 1,
+    '#size' => 10,
+    '#maxlength' => 10,
+  );
+
+  $form['next'] = array(
+    '#type' => 'submit',
+    '#value' => 'Next >>',
+    '#submit' => array('node_revision_history_listing_form_next_submit'),
+  );
+
+  return $form;
+}
+
+
+/**
+ * Submit handler for node_revision_history_listing_form() next button.
+ *
+ * Capture the values from page one and store them away so they can be used
+ * at final submit time.
+ */
+function node_revision_history_listing_form_next_submit($form, &$form_state) {
+  $form_state['page_values'][1] = $form_state['values'];
+
+  if (!empty($form_state['page_values'][2])) {
+    $form_state['values'] = $form_state['page_values'][2];
+  }
+
+  // When form rebuilds, it will look at this to figure which page to build.
+  if ($form_state['values']['nid'] == 0) {
+    $form_state['page_num'] = 3;
+  }
+  else {
+    $form_state['page_num'] = 2;
+  }
+  $form_state['rebuild'] = TRUE;
+}
+
+
+/**
+ * The form for the second page of form_node_revision_history_listing().
+ * This form is for reviewing a specified node.
+ */
+function node_revision_history_listing_form_page_two($form, &$form_state) {
+
+  $this_nid = $form_state['values']['nid'];
+  $this_node = node_load($this_nid);
+  $revisions = node_revision_list($this_node);
+
+  // Produce a table of results.
+  $headers = array(
+    'VID',
+    'Author',
+    'Created',
+  );
+
+  $options = array();
+
+  foreach ($revisions as $vid => $data) {
+    $options[$vid] = array(
+      array('data' => $data -> vid),
+      array('data' => $data-> name),
+      array('data' => $data-> timestamp),
+    );
+    $form_state['current_vid'][$vid] = $data -> vid == $data -> current_vid ? $data -> current_vid : 0;
+  }
+
+  $form['description'] = array(
+    '#type' => 'item',
+    '#title' => "Select revisions of node $this_nid to delete.",
+    '#description' => 'NB. The procedure will prevent the deletion of the current revision.',
+  );
+
+  $form['revisions'] = array(
+    '#type' => 'tableselect',
+    '#header' => $headers,
+    '#options' => $options,
+    '#empty' => t('No content available.'),
+  );
+
+  $form['actions'] = array('#type' => 'actions');
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#submit' => array('node_revision_history_listing_form_page_two_submit'),
+  );
+
+  $form['back'] = array(
+    '#type' => 'submit',
+    '#value' => t('<< Back'),
+    '#submit' => array('node_revision_history_listing_form_page_two_back'),
+    '#limit_validation_errors' => array(),
+  );
+
+  return $form;
+}
+
+
+function node_revision_history_listing_form_page_two_submit($form, &$form_state) {
+  // Get node identities.
+  $revisions = $form_state['values']['revisions'];
+  $vids = $form_state['current_vid'];
+
+  $deleted_vids = '';
+  foreach($revisions as $revision => $value){
+    if($vids[$value] == 0){
+      node_revision_delete($value);
+      $deleted_vids =  trim($revision) . ', ' . $deleted_vids;
+    }
+  }
+  backdrop_set_message(t('The following revisions have been deleted, VIDs = @deleted_vids',
+    array(
+      '@deleted_vids' => $deleted_vids,
+    )
+  ));
+}
+
+
+/**
+ * Back button handler submit handler.
+ *
+ * Since #limit_validation_errors = array() is set, values from page 2
+ * will be discarded. We load the page 1 values instead.
+ */
+function node_revision_history_listing_form_page_two_back($form, &$form_state) {
+  $form_state['values'] = $form_state['page_values'][1];
+  $form_state['page_num'] = 1;
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * The form for the third page of form_node_revision_history_listing().
+ * This lists the number of revisions for every node in the system
+ * where that number exceeds the threshold.
+ * It provides a checkbox for specifying which nodes should have some
+ * revisions deleted and when submitted processes the selection.
+ */
+function node_revision_history_listing_form_page_three($form, &$form_state) {
+  $revision_count = array();
+  $threshold = $form_state['values']['threshold'];
+
+  //for each node type count how many revision exist.
+  foreach (node_type_get_names() as $type => $name) {
+    $revisions = node_revision_history_candidates($name, $threshold);
+    if(!empty($revisions)){
+      $revision_count[$name] = $revisions;
+    }
+  }
+  $rows = array();
+
+  foreach ($revision_count as $name => $data) {
+    foreach ($data as $identity => $revisions) {
+      $rows[] = array(
+        'name' => $name,
+        'identity' => $identity,
+        'number' => $revisions,
+      );
+    }
+  }
+  $form_state['revision_data'] = $rows;
+  $form_state['threshold'] = $threshold;
+
+  $options = array();
+
+  foreach ($rows as $rid => $revisions) {
+    $options[$rid] = array(
+      array('data' => $revisions['name']),
+      array('data' => $revisions['identity']),
+      array('data' => $revisions['number']),
+    );
+  }
+
+
+  // Produce a table of results.
+  $headers = array(
+    'Node type',
+    'Node identity',
+    'Number of revisions',
+  );
+
+  $form['description'] = array(
+    '#type' => 'item',
+    '#title' => t('Table of existing revisions with number greater than threshold.'),
+    '#description' => t('Choose one or more nodes to process. The more recent revisions 
+    will not be deleted, depending on the value of the threshold.'),
+  );
+  
+  $form['d_threshold'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Deletion threshold'),
+    '#description' => t('Delete revisions in excess of this threshold.'),
+    '#default_value' => $threshold,
+    '#size' => 10,
+    '#maxlength' => 10,
+  );
+
+  $form['revisions'] = array(
+    '#type' => 'tableselect',
+    '#header' => $headers,
+    '#options' => $options,
+    '#empty' => t('No content available.'),
+  );
+
+  $form['back'] = array(
+    '#type' => 'submit',
+    '#value' => t('<< Back'),
+    '#submit' => array('node_revision_history_listing_form_page_three_back'),
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit'),
+    '#submit' => array('node_revision_history_listing_form_page_three_submit'),
+  );
+
+  return $form;
+}
+
+
+/**
+ * Submit function for the third page of form_node_revision_history_listing().
+ */
+function node_revision_history_listing_form_page_three_submit($form, &$form_state) {
+  // Get IDs of nodes to process from $form_state['values']['revisions'] > 0.
+  // Get corresponding node data from $form_state['revision_data'].
+  // Build an array of data for selected nodes ready for use of
+  // function node_revision_delete() limited by value of threshold in
+  // $form_state['threshold'].
+
+  $data = $form_state['revision_data'];
+  $d_threshold = $form_state['values']['d_threshold'];
+
+  // List nodes with revisions to delete
+  $nodes = array();
+  $no_nodes = TRUE;
+  foreach ($form_state['values']['revisions'] as $nid => $value) {
+    if ($value >= 0) {
+      $nodes[$nid] = $nid;
+      $no_nodes = FALSE;
+    }
+  }
+  if ($no_nodes) {
+    // return to initial page.
+    $form_state['page_num'] = 1;
+    $form_state['rebuild'] = TRUE;
+    backdrop_set_message(t('No nodes to process.'));
+    return;
+  }
+  foreach ($nodes as $node => $item) {
+    // Now obtain the number of revisions for each node listed.
+    $nid = $data[$item]['identity'];
+    $this_node = node_load($nid);
+    $revisions_list = node_revision_list($this_node);
+    // step through revisions_list with a count,
+    // do nothing until count reaches threshold
+    // then delete each revision
+    // this relies on revisions being listed in descending order
+    // $revisions_list is an array of node objects.
+    // Note: function node_revision_delete includes a check that
+    // prevents deleting the current revision.
+    $n = 0;
+    foreach ($revisions_list as $vid => $revision) {
+      if ($n >= $d_threshold){
+        node_revision_delete($vid);
+      }
+      $n++;
+    }
+  }
+  backdrop_set_message(t('Processing complete.'));
+}
+
+
+function node_revision_history_listing_form_page_three_back($form, &$form_state) {
+  $form_state['values'] = $form_state['page_values'][1];
+  $form_state['page_num'] = 1;
+  $form_state['rebuild'] = TRUE;
+}
+
+
+/**
+ * Helper function to return the list of nids with revisions.
+ *
+ * @param string $content_type
+ *   A content type machine name.
+ *
+ * @return array
+ *   Array of nids with number of revisions for each
+ */
+function node_revision_history_candidates($content_type, $threshold) {
+  $params = array(
+    ':content_type' => $content_type,
+    ':threshold' => $threshold,
+  );
+  $result = db_query("SELECT n.nid, COUNT(r.nid)
+                     FROM {node} n
+                     INNER JOIN {node_revision} r ON r.nid = n.nid
+                     WHERE n.type = :content_type
+                     GROUP BY n.nid
+                     HAVING count(r.nid) > :threshold", $params)->fetchAllKeyed();
+  return $result;
+}
