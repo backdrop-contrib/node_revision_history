@@ -141,15 +141,16 @@ function node_revision_history_listing_form_page_two($form, &$form_state) {
     $options[$vid] = array(
       array('data' => $data -> vid),
       array('data' => $data-> name),
-      array('data' => $data-> timestamp),
+      array('data' => date('Y-m-d H:i', $data-> timestamp)),
     );
+    // For each revision identify the current one, others are given value 0.
     $form_state['current_vid'][$vid] = $data -> vid == $data -> current_vid ? $data -> current_vid : 0;
   }
 
   $form['description'] = array(
     '#type' => 'item',
     '#title' => "Select revisions of node $this_nid to delete.",
-    '#description' => 'NB. The procedure will prevent the deletion of the current revision.',
+    '#description' => 'NB. The procedure will prevent the deletion of the current revision (the first in this list).',
   );
 
   $form['revisions'] = array(
@@ -184,9 +185,9 @@ function node_revision_history_listing_form_page_two_submit($form, &$form_state)
 
   $deleted_vids = '';
   foreach($revisions as $revision => $value){
-    if($vids[$value] == 0){
+    if($value > 0){
       node_revision_delete($value);
-      $deleted_vids =  trim($revision) . ', ' . $deleted_vids;
+      $deleted_vids =  trim($value) . ', ' . $deleted_vids;
     }
   }
   backdrop_set_message(t('The following revisions have been deleted, VIDs = @deleted_vids',
@@ -231,7 +232,7 @@ function node_revision_history_listing_form_page_three($form, &$form_state) {
 
   foreach ($revision_count as $name => $data) {
     foreach ($data as $identity => $revisions) {
-      $rows[] = array(
+      $rows[$identity] = array(
         'name' => $name,
         'identity' => $identity,
         'number' => $revisions,
@@ -250,7 +251,6 @@ function node_revision_history_listing_form_page_three($form, &$form_state) {
       array('data' => $revisions['number']),
     );
   }
-
 
   // Produce a table of results.
   $headers = array(
@@ -309,13 +309,13 @@ function node_revision_history_listing_form_page_three_submit($form, &$form_stat
   // $form_state['threshold'].
 
   $data = $form_state['revision_data'];
-  $d_threshold = $form_state['values']['d_threshold'];
 
+  $d_threshold = $form_state['values']['d_threshold'];
   // List nodes with revisions to delete
   $nodes = array();
   $no_nodes = TRUE;
   foreach ($form_state['values']['revisions'] as $nid => $value) {
-    if ($value >= 0) {
+    if ($value > 0) {
       $nodes[$nid] = $nid;
       $no_nodes = FALSE;
     }
