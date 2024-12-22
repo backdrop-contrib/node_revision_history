@@ -223,7 +223,7 @@ function node_revision_history_listing_form_page_three($form, &$form_state) {
 
   //for each node type count how many revision exist.
   foreach (node_type_get_names() as $type => $name) {
-    $revisions = node_revision_history_candidates($name, $threshold);
+    $revisions = node_revision_history_candidates($type, $threshold);
     if(!empty($revisions)){
       $revision_count[$name] = $revisions;
     }
